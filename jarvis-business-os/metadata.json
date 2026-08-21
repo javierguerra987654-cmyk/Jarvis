@@ -1,0 +1,7 @@
+{
+  "name": "JARVIS Business OS",
+  "description": "Enterprise AI Operating System powered by Gemini with multi-agent orchestration, conversational voice assistant, business memory, and action governance.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

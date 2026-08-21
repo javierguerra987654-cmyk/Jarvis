@@ -1,0 +1,152 @@
+{
+  "$schema": "https://raw.githubusercontent.com/firebase/firebase-tools/master/schema/firestore-blueprint.json",
+  "entities": {
+    "users": {
+      "title": "User Profiles",
+      "description": "Registered operators and administrators in JARVIS Business OS",
+      "properties": {
+        "id": { "type": "string", "description": "User UID" },
+        "email": { "type": "string", "description": "Operator Email" },
+        "displayName": { "type": "string", "description": "Operator Display Name" },
+        "photoURL": { "type": "string", "description": "Profile Photo URL" },
+        "role": { "type": "string", "enum": ["admin", "operator", "viewer"], "description": "Role access level" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "businessMemory": {
+      "title": "Business Memory Items",
+      "description": "Persistent institutional knowledge and strategic memory entries",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string", "enum": ["OBJECTIVES", "PROJECTS", "DECISIONS", "METRICS", "CLIENTS", "PRODUCTS", "PROCESSES", "LEARNINGS"] },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "confidence": { "type": "number" },
+        "dataSource": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["category", "title", "content", "createdAt"]
+    },
+    "opportunities": {
+      "title": "Radar Opportunities",
+      "description": "Detected commercial, operational, and growth opportunities",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "estimatedImpact": { "type": "string" },
+        "confidence": { "type": "number" },
+        "dataUsed": { "type": "array", "items": { "type": "string" } },
+        "reason": { "type": "string" },
+        "recommendedAction": { "type": "string" },
+        "status": { "type": "string" },
+        "assignedAgent": { "type": "string" },
+        "priority": { "type": "string" },
+        "dataSource": { "type": "string" },
+        "actionProposalId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "status", "createdAt"]
+    },
+    "proposals": {
+      "title": "Action Governance Proposals",
+      "description": "Human-in-the-loop governance proposals and execution records",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "agent": { "type": "string" },
+        "category": { "type": "string" },
+        "actionType": { "type": "string" },
+        "reason": { "type": "string" },
+        "dataEvidence": { "type": "array", "items": { "type": "string" } },
+        "estimatedImpact": { "type": "string" },
+        "risk": { "type": "string" },
+        "status": { "type": "string" },
+        "requiresAuth": { "type": "boolean" },
+        "payload": { "type": "object" },
+        "executionOutput": { "type": "string" },
+        "proposedAt": { "type": "string", "format": "date-time" },
+        "decidedAt": { "type": "string", "format": "date-time" },
+        "executedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["title", "actionType", "status", "risk", "proposedAt"]
+    },
+    "auditLogs": {
+      "title": "Activity Audit Log",
+      "description": "Immutable security and action ledger records",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "user": { "type": "string" },
+        "agent": { "type": "string" },
+        "action": { "type": "string" },
+        "tool": { "type": "string" },
+        "input": { "type": "object" },
+        "result": { "type": "string" },
+        "status": { "type": "string" },
+        "durationMs": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["timestamp", "action", "status"]
+    },
+    "conversations": {
+      "title": "Conversations",
+      "description": "JARVIS conversation sessions and message logs",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "messages": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["createdAt", "updatedAt"]
+    },
+    "systemConfig": {
+      "title": "System Settings",
+      "description": "Global operating settings, autonomy levels, and data modes",
+      "properties": {
+        "id": { "type": "string" },
+        "autonomyLevel": { "type": "string" },
+        "dataMode": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profile document"
+    },
+    "/businessMemory/{memoryId}": {
+      "schema": "businessMemory",
+      "description": "Business institutional memory items"
+    },
+    "/opportunities/{oppId}": {
+      "schema": "opportunities",
+      "description": "Radar opportunities"
+    },
+    "/proposals/{proposalId}": {
+      "schema": "proposals",
+      "description": "HITL action proposals"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "auditLogs",
+      "description": "Audit trail logs"
+    },
+    "/conversations/{convId}": {
+      "schema": "conversations",
+      "description": "User conversation logs"
+    },
+    "/systemConfig/{configId}": {
+      "schema": "systemConfig",
+      "description": "System configuration parameters"
+    }
+  }
+}
