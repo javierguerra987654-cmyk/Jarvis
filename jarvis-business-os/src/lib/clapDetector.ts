@@ -14,24 +14,26 @@ interface SensitivityConfig {
   minConfidence: number;
 }
 
+// Conservative defaults: the detector should wake JARVIS only on a
+// convincing transient, not on ordinary speech or keyboard noise.
 const CONFIG: Record<ClapSensitivity, SensitivityConfig> = {
   low: {
-    rmsThreshold: 0.08,
-    peakThreshold: 0.24,
-    highFreqThreshold: 0.16,
-    minConfidence: 0.45,
+    rmsThreshold: 0.09,
+    peakThreshold: 0.26,
+    highFreqThreshold: 0.18,
+    minConfidence: 0.68,
   },
   balanced: {
-    rmsThreshold: 0.04,
-    peakThreshold: 0.14,
-    highFreqThreshold: 0.10,
-    minConfidence: 0.35,
+    rmsThreshold: 0.055,
+    peakThreshold: 0.18,
+    highFreqThreshold: 0.12,
+    minConfidence: 0.58,
   },
   high: {
-    rmsThreshold: 0.02,
-    peakThreshold: 0.08,
-    highFreqThreshold: 0.06,
-    minConfidence: 0.25,
+    rmsThreshold: 0.035,
+    peakThreshold: 0.11,
+    highFreqThreshold: 0.08,
+    minConfidence: 0.50,
   },
 };
 
@@ -56,7 +58,7 @@ export class ClapDetector {
   constructor(options: ClapDetectorOptions) {
     this.onClap = options.onClap;
     this.onAudioLevel = options.onAudioLevel;
-    this.cooldownMs = options.cooldownMs ?? 800;
+    this.cooldownMs = options.cooldownMs ?? 1000;
     this.sensitivity = options.sensitivity ?? 'balanced';
   }
 
@@ -68,8 +70,8 @@ export class ClapDetector {
     }
 
     try {
-      // Noise suppression and echo cancellation can suppress short sharp transients (claps).
-      // We first try with raw audio capture, falling back if necessary.
+      // Raw capture is preferred because browser noise suppression can remove
+      // the short transient that distinguishes a clap from speech.
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -79,9 +81,7 @@ export class ClapDetector {
           },
         });
       } catch {
-        this.stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
+        this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -93,16 +93,14 @@ export class ClapDetector {
 
       this.source = this.audioContext.createMediaStreamSource(this.stream);
       this.analyser = this.audioContext.createAnalyser();
-
       this.analyser.fftSize = 1024;
-      this.analyser.smoothingTimeConstant = 0.05;
+      this.analyser.smoothingTimeConstant = 0.03;
       this.analyser.minDecibels = -90;
       this.analyser.maxDecibels = -10;
 
       this.source.connect(this.analyser);
       this.buffer = new Uint8Array(this.analyser.fftSize);
       this.running = true;
-
       this.detectLoop();
     } catch (err) {
       this.running = false;
@@ -122,30 +120,21 @@ export class ClapDetector {
       this.animationFrame = null;
     }
 
-    try {
-      this.source?.disconnect();
-    } catch {}
+    try { this.source?.disconnect(); } catch {}
     this.source = null;
 
-    try {
-      this.analyser?.disconnect();
-    } catch {}
+    try { this.analyser?.disconnect(); } catch {}
     this.analyser = null;
 
     this.stream?.getTracks().forEach((track) => {
-      try {
-        track.stop();
-      } catch {}
+      try { track.stop(); } catch {}
     });
     this.stream = null;
 
     if (this.audioContext && this.audioContext.state !== 'closed') {
-      try {
-        void this.audioContext.close();
-      } catch {}
-      this.audioContext = null;
+      try { void this.audioContext.close(); } catch {}
     }
-
+    this.audioContext = null;
     this.buffer = null;
   }
 
@@ -161,31 +150,18 @@ export class ClapDetector {
     return this.running;
   }
 
-  /**
-   * Manually trigger clap event for testing or simulation
-   */
-  triggerManualClap(): void {
-    const now = performance.now();
-    this.lastDetection = now;
-    this.onClap(1.0);
-  }
-
   private detectLoop = (): void => {
     if (!this.running || !this.analyser || !this.buffer) return;
 
     this.analyser.getByteTimeDomainData(this.buffer);
-
     const result = this.analyseTransient(this.buffer);
 
-    if (this.onAudioLevel) {
-      this.onAudioLevel(result.rms);
-    }
+    this.onAudioLevel?.(result.rms);
 
     if (result.detected) {
       const now = performance.now();
       if (now - this.lastDetection >= this.cooldownMs) {
         this.lastDetection = now;
-        console.log(`[CLAP DETECTOR] Transient Hand Clap triggered! Confidence: ${result.confidence.toFixed(2)}, Peak: ${result.peak.toFixed(2)}, RMS: ${result.rms.toFixed(3)}`);
         this.onClap(result.confidence);
       }
     }
@@ -193,9 +169,7 @@ export class ClapDetector {
     this.animationFrame = requestAnimationFrame(this.detectLoop);
   };
 
-  private analyseTransient(
-    data: Uint8Array,
-  ): {
+  private analyseTransient(data: Uint8Array): {
     detected: boolean;
     confidence: number;
     peak: number;
@@ -207,56 +181,49 @@ export class ClapDetector {
     let peak = 0;
     let highFreqEnergy = 0;
 
-    const len = data.length;
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i < data.length; i++) {
       const normalized = (data[i] - 128) / 128;
       const absVal = Math.abs(normalized);
-
       sumSquares += normalized * normalized;
-      if (absVal > peak) {
-        peak = absVal;
-      }
+      peak = Math.max(peak, absVal);
 
       if (i > 0) {
-        const prev = (data[i - 1] - 128) / 128;
-        const delta = Math.abs(normalized - prev);
+        const previous = (data[i - 1] - 128) / 128;
+        const delta = Math.abs(normalized - previous);
         highFreqEnergy += delta * delta;
       }
     }
 
-    const rms = Math.sqrt(sumSquares / len);
-    const highFreqRatio = sumSquares > 0 ? Math.min(1, highFreqEnergy / (sumSquares * 2)) : 0;
+    const rms = Math.sqrt(sumSquares / data.length);
+    const highFreqRatio = sumSquares > 0
+      ? Math.min(1, highFreqEnergy / (sumSquares * 2))
+      : 0;
 
-    // Track rolling ambient noise floor
-    this.ambientRms = this.ambientRms * 0.95 + rms * 0.05;
+    // Slowly follow the room noise floor. A clap must be a clear transient
+    // above the ambient level, which reduces false positives from speech.
+    this.ambientRms = this.ambientRms * 0.97 + rms * 0.03;
 
-    // Check conditions for a sharp percussive transient:
-    // 1. Peak above absolute sensitivity threshold
-    // 2. RMS jump above ambient noise or absolute threshold
-    // 3. High-frequency rapid delta ratio characteristic of a clap
-    const isPeakSufficient = peak >= config.peakThreshold;
-    const isRmsSufficient = rms >= config.rmsThreshold || (rms > this.ambientRms * 2.2 && peak > config.peakThreshold * 0.8);
-    const isHighFreqSufficient = highFreqRatio >= config.highFreqThreshold;
+    const peakSufficient = peak >= config.peakThreshold;
+    const rmsSufficient =
+      rms >= config.rmsThreshold ||
+      (rms > this.ambientRms * 2.5 && peak > config.peakThreshold * 0.9);
+    const highFreqSufficient = highFreqRatio >= config.highFreqThreshold;
 
-    if (!isPeakSufficient || !isRmsSufficient) {
-      return {
-        detected: false,
-        confidence: 0,
-        peak,
-        rms,
-      };
+    if (!peakSufficient || !rmsSufficient || !highFreqSufficient) {
+      return { detected: false, confidence: 0, peak, rms };
     }
 
-    // Calculate normalized confidence score
-    const peakScore = Math.min(1, peak / 0.5);
-    const rmsScore = Math.min(1, rms / 0.2);
-    const freqScore = Math.min(1, highFreqRatio / 0.4);
+    const peakScore = Math.min(1, peak / 0.55);
+    const rmsScore = Math.min(1, rms / 0.22);
+    const freqScore = Math.min(1, highFreqRatio / 0.45);
 
-    const confidence = (peakScore * 0.45) + (rmsScore * 0.35) + (freqScore * 0.20);
-    const detected = confidence >= config.minConfidence;
+    const confidence =
+      peakScore * 0.45 +
+      rmsScore * 0.30 +
+      freqScore * 0.25;
 
     return {
-      detected,
+      detected: confidence >= config.minConfidence,
       confidence: Math.min(1, confidence),
       peak,
       rms,
