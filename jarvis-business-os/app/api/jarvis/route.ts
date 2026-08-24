@@ -16,18 +16,15 @@ export async function POST(request: Request) {
   try {
     const body = RequestSchema.parse(await request.json());
     const client = getOpenAI();
-    const input = [
-      ...body.history,
-      { role: "user" as const, content: body.message },
-    ].map((item) => ({
-      role: item.role,
-      content: item.content,
-    }));
+    const conversation = body.history
+      .map((item) => `${item.role === "user" ? "USER" : "ASSISTANT"}: ${item.content}`)
+      .concat(`USER: ${body.message}`)
+      .join("\n\n");
 
     const stream = await client.responses.create({
       model: getJarvisModel(),
       instructions: getJarvisSystemPrompt(),
-      input,
+      input: conversation,
       stream: true,
     });
 
