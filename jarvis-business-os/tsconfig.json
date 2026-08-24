@@ -14,25 +14,15 @@
     "jsx": "preserve",
     "incremental": true,
     "plugins": [{ "name": "next" }],
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": [
     "next-env.d.ts",
     ".next/types/**/*.ts",
     "app/**/*.ts",
     "app/**/*.tsx",
-    "src/**/*.ts",
-    "src/**/*.tsx",
+    "src/lib/jarvis-core.ts",
     "next.config.ts"
   ],
-  "exclude": [
-    "node_modules",
-    ".next",
-    "dist",
-    "server.ts",
-    "server/**/*.ts",
-    "src/**/*.legacy.ts"
-  ]
+  "exclude": ["node_modules", ".next", "out", "dist", "server.ts", "server"]
 }
