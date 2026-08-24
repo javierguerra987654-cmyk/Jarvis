@@ -12,6 +12,10 @@ const RequestSchema = z.object({
   })).max(30).default([]),
 });
 
+function sse(payload: unknown) {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
 export async function POST(request: Request) {
   try {
     const body = RequestSchema.parse(await request.json());
@@ -34,16 +38,14 @@ export async function POST(request: Request) {
         try {
           for await (const event of stream) {
             if (event.type === "response.output_text.delta") {
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ delta: event.delta })}\n\n`),
-              );
+              controller.enqueue(encoder.encode(sse({ delta: event.delta })));
             }
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (error) {
           const message = error instanceof Error ? error.message : "Error de streaming.";
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`));
+          controller.enqueue(encoder.encode(sse({ error: message })));
           controller.close();
         }
       },
