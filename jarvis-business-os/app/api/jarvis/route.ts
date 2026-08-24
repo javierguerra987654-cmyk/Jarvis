@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getJarvisModel, getJarvisSystemPrompt, getOpenAI } from "@/lib/jarvis-core";
+import { runMemoryTool } from "@/lib/memory-tool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,25 +11,79 @@ const RequestSchema = z.object({
     role: z.enum(["user", "assistant"]),
     content: z.string().max(12000),
   })).max(30).default([]),
+  userId: z.string().uuid().optional(),
 });
 
 function sse(payload: unknown) {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
+const memoryToolDefinition = {
+  type: "function",
+  name: "memory",
+  description: "Busca o guarda memoria persistente. Usa search para recuperar recuerdos relevantes y save solo cuando el usuario pida recordar, guardar o memorizar algo.",
+  strict: true,
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: { type: "string", enum: ["search", "save"] },
+      query: { type: ["string", "null"], description: "Texto para buscar en memoria." },
+      content: { type: ["string", "null"], description: "Contenido que se quiere guardar." },
+      category: { type: ["string", "null"], enum: ["fact", "preference", "goal", "context", null] },
+      importance: { type: ["number", "null"], description: "Importancia entre 0 y 1." },
+    },
+    required: ["action", "query", "content", "category", "importance"],
+  },
+} as const;
+
 export async function POST(request: Request) {
   try {
     const body = RequestSchema.parse(await request.json());
     const client = getOpenAI();
+    const requestId = crypto.randomUUID();
     const conversation = body.history
       .map((item) => `${item.role === "user" ? "USER" : "ASSISTANT"}: ${item.content}`)
       .concat(`USER: ${body.message}`)
       .join("\n\n");
 
-    const stream = await client.responses.create({
+    const first = await client.responses.create({
       model: getJarvisModel(),
       instructions: getJarvisSystemPrompt(),
       input: conversation,
+      tools: [memoryToolDefinition],
+    });
+
+    const calls = (first.output ?? []).filter((item: any) => item.type === "function_call");
+    const outputs = [] as Array<{ type: "function_call_output"; call_id: string; output: string }>;
+
+    for (const call of calls as any[]) {
+      if (call.name !== "memory") continue;
+      try {
+        const result = await runMemoryTool(JSON.parse(call.arguments), {
+          userId: body.userId,
+          requestId,
+        });
+        outputs.push({
+          type: "function_call_output",
+          call_id: call.call_id,
+          output: JSON.stringify(result),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Error ejecutando memoria.";
+        outputs.push({
+          type: "function_call_output",
+          call_id: call.call_id,
+          output: JSON.stringify({ error: message }),
+        });
+      }
+    }
+
+    const stream = await client.responses.create({
+      model: getJarvisModel(),
+      instructions: getJarvisSystemPrompt(),
+      previous_response_id: first.id,
+      input: outputs,
       stream: true,
     });
 
