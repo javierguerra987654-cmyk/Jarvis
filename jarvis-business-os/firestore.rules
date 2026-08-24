@@ -1,56 +1,43 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper functions
     function isAuthenticated() {
       return request.auth != null;
     }
-    
+
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // User profiles: authenticated users can read, own user can write
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow write: if isOwner(userId);
+      allow create, update: if isOwner(userId);
+      allow delete: if false;
     }
 
-    // Business Memory: authenticated users can read, create, update, and delete
     match /businessMemory/{memoryId} {
-      allow read: if true;
-      allow create, update: if isAuthenticated() || true;
-      allow delete: if isAuthenticated() || true;
+      allow read, create, update, delete: if isAuthenticated();
     }
 
-    // Opportunities: read & write access
     match /opportunities/{oppId} {
-      allow read: if true;
-      allow create, update, delete: if true;
+      allow read, create, update, delete: if isAuthenticated();
     }
 
-    // Proposals: read & write access with governance logging
     match /proposals/{proposalId} {
-      allow read: if true;
-      allow create, update, delete: if true;
+      allow read, create, update, delete: if isAuthenticated();
     }
 
-    // Audit Logs: readable by anyone, create allowed (immutable append)
     match /auditLogs/{logId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if false; // Immutable audit log
+      allow read, create: if isAuthenticated();
+      allow update, delete: if false;
     }
 
-    // Conversations: read & write for session tracking
     match /conversations/{convId} {
-      allow read, write: if true;
+      allow read, create, update, delete: if isAuthenticated();
     }
 
-    // System Config: read & write
     match /systemConfig/{configId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated();
     }
   }
 }
