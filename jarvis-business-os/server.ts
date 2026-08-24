@@ -9,6 +9,14 @@ import { setupLiveWebSocket } from './server/liveSession.js';
 
 dotenv.config();
 
+const workspaceToolIds = new Set([
+  'searchEmails',
+  'searchDrive',
+  'listSpreadsheets',
+  'getUpcomingEvents',
+  'queryGoogleWorkspace',
+]);
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
@@ -38,7 +46,6 @@ async function startServer() {
         return;
       }
 
-      // Do not leave unsupported upgrade sockets hanging.
       socket.destroy();
     } catch (err) {
       console.warn('[Server] WebSocket upgrade error:', err);
@@ -57,6 +64,24 @@ async function startServer() {
     }
     next();
   });
+
+  // Fail closed for workspace tools until a real OAuth-backed connector is installed.
+  // The current registry contains synthetic fixture payloads; never expose those as live data.
+  if (process.env.JARVIS_REAL_WORKSPACE_CONNECTORS !== 'true') {
+    app.use('/api/tools', (req, res, next) => {
+      if (req.method === 'POST' && req.path.endsWith('/execute')) {
+        const parts = req.path.split('/').filter(Boolean);
+        const toolId = parts.length >= 2 ? parts[parts.length - 2] : '';
+        if (workspaceToolIds.has(toolId)) {
+          return res.status(501).json({
+            error: `Workspace connector '${toolId}' is not configured. Synthetic fixture data is disabled in this environment.`,
+            code: 'WORKSPACE_CONNECTOR_NOT_CONFIGURED',
+          });
+        }
+      }
+      next();
+    });
+  }
 
   // Request logging for audit telemetry
   app.use((req, res, next) => {
