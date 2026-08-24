@@ -89,6 +89,7 @@ Directivas de Voz en Tiempo Real:
           model: 'gemini-3.1-flash-live-preview',
           config: {
             responseModalities: [Modality.AUDIO],
+            inputAudioTranscription: {},
             speechConfig: {
               voiceConfig: {
                 prebuiltVoiceConfig: { voiceName: normalizedVoice },
@@ -99,6 +100,15 @@ Directivas de Voz en Tiempo Real:
           callbacks: {
             onmessage: (message: LiveServerMessage) => {
               if (clientWs.readyState !== WebSocket.OPEN) return;
+
+              const inputTranscription = message.serverContent?.inputTranscription;
+              if (inputTranscription?.text) {
+                safeSend(clientWs, {
+                  type: 'inputTranscript',
+                  text: inputTranscription.text,
+                  isFinal: inputTranscription.finished === true,
+                });
+              }
 
               const parts = message.serverContent?.modelTurn?.parts;
               if (parts?.length) {
