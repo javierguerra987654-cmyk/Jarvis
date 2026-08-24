@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     const client = getOpenAI();
     const input = [
       ...body.history,
-      { role: "user", content: body.message },
+      { role: "user" as const, content: body.message },
     ].map((item) => ({
       role: item.role,
       content: item.content,
