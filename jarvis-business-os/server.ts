@@ -6,6 +6,7 @@ import { WebSocketServer } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import { apiRouter } from './server/routes.js';
 import { setupLiveWebSocket } from './server/liveSession.js';
+import { storage } from './server/storage.js';
 
 dotenv.config();
 
@@ -17,10 +18,28 @@ const workspaceToolIds = new Set([
   'queryGoogleWorkspace',
 ]);
 
+const highRiskMutationPatterns = [
+  /^\/api\/tools\/[^/]+\/execute$/,
+  /^\/api\/proposals\/[^/]+\/(approve|reject|execute)$/,
+  /^\/api\/system\/(mode|autonomy)$/,
+];
+
+function isAuthorizedOperator(req: express.Request): boolean {
+  const expected = process.env.JARVIS_OPERATOR_TOKEN;
+  if (!expected) return false;
+  const auth = req.get('authorization') || '';
+  const headerToken = req.get('x-jarvis-operator-token') || '';
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  return bearer === expected || headerToken === expected;
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
   const server = http.createServer(app);
+
+  // Seeded fixture data is only demo data. Real mode must be earned from real connectors.
+  storage.setDataMode('DEMO');
 
   // Basic hardening for API responses. Keep this dependency-free.
   app.disable('x-powered-by');
@@ -31,7 +50,18 @@ async function startServer() {
     next();
   });
 
-  // Set up WebSocket server for Gemini Live API real-time voice
+  // Protect all high-risk mutations with an operator token.
+  app.use((req, res, next) => {
+    if (highRiskMutationPatterns.some((pattern) => pattern.test(req.path)) && !isAuthorizedOperator(req)) {
+      return res.status(401).json({
+        error: 'Operator authorization required for this high-risk action.',
+        code: 'OPERATOR_AUTH_REQUIRED',
+      });
+    }
+    next();
+  });
+
+  // Set up WebSocket server for Gemini Live API real-time voice.
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   setupLiveWebSocket(wss);
 
@@ -45,7 +75,6 @@ async function startServer() {
         });
         return;
       }
-
       socket.destroy();
     } catch (err) {
       console.warn('[Server] WebSocket upgrade error:', err);
@@ -53,7 +82,7 @@ async function startServer() {
     }
   });
 
-  // JSON body parser with generous limit for document intelligence.
+  // JSON body parser with bounded limits for document intelligence.
   app.use(express.json({ limit: '15mb' }));
   app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
@@ -65,25 +94,22 @@ async function startServer() {
     next();
   });
 
-  // Fail closed for workspace tools until a real OAuth-backed connector is installed.
-  // The current registry contains synthetic fixture payloads; never expose those as live data.
-  if (process.env.JARVIS_REAL_WORKSPACE_CONNECTORS !== 'true') {
-    app.use('/api/tools', (req, res, next) => {
-      if (req.method === 'POST' && req.path.endsWith('/execute')) {
-        const parts = req.path.split('/').filter(Boolean);
-        const toolId = parts.length >= 2 ? parts[parts.length - 2] : '';
-        if (workspaceToolIds.has(toolId)) {
-          return res.status(501).json({
-            error: `Workspace connector '${toolId}' is not configured. Synthetic fixture data is disabled in this environment.`,
-            code: 'WORKSPACE_CONNECTOR_NOT_CONFIGURED',
-          });
-        }
+  // Fail closed for workspace tools until a real OAuth-backed adapter exists.
+  app.use('/api/tools', (req, res, next) => {
+    if (req.method === 'POST' && req.path.endsWith('/execute')) {
+      const parts = req.path.split('/').filter(Boolean);
+      const toolId = parts.length >= 2 ? parts[parts.length - 2] : '';
+      if (workspaceToolIds.has(toolId)) {
+        return res.status(501).json({
+          error: `Workspace connector '${toolId}' is not configured. Synthetic fixture data is disabled.`,
+          code: 'WORKSPACE_CONNECTOR_NOT_CONFIGURED',
+        });
       }
-      next();
-    });
-  }
+    }
+    next();
+  });
 
-  // Request logging for audit telemetry
+  // Request logging for audit telemetry.
   app.use((req, res, next) => {
     if (req.path.startsWith('/api')) {
       console.log(`[API] ${req.method} ${req.path}`);
@@ -91,10 +117,10 @@ async function startServer() {
     next();
   });
 
-  // Mount API routes
+  // Mount API routes.
   app.use('/api', apiRouter);
 
-  // Vite middleware in dev, static files in prod
+  // Vite middleware in dev, static files in prod.
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
