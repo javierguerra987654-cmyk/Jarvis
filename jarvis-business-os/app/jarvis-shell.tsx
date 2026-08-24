@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Activity, Cpu, Send, ShieldCheck, Sparkles, Volume2 } from "lucide-react";
 
 type Message = { role: "user" | "assistant"; content: string };
@@ -9,7 +9,6 @@ export default function JarvisShell() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
   const status = busy ? "THINKING" : "ONLINE";
   const messageCount = useMemo(() => messages.length, [messages.length]);
 
@@ -21,15 +20,12 @@ export default function JarvisShell() {
     setMessages((current) => [...current, { role: "user", content: text }]);
     setInput("");
     setBusy(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
 
     try {
       const response = await fetch("/api/jarvis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, history: messages.slice(-20) }),
-        signal: controller.signal,
       });
       if (!response.ok || !response.body) {
         const data = await response.json().catch(() => null);
@@ -61,12 +57,10 @@ export default function JarvisShell() {
         }
       }
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
       const message = error instanceof Error ? error.message : "Error desconocido.";
       setMessages((current) => [...current, { role: "assistant", content: `Sistema: ${message}` }]);
     } finally {
       setBusy(false);
-      abortRef.current = null;
     }
   }
 
