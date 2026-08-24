@@ -1,20 +1,39 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# J.A.R.V.I.S. Core
 
-# Run and deploy your AI Studio app
+Rebuild limpio del asistente JARVIS sobre Next.js, Vercel y OpenAI.
 
-This contains everything you need to run your app locally.
+## Arquitectura
 
-View your app in AI Studio: https://ai.studio/apps/345e250c-33d0-4970-b3f7-6d41c55ed69f
+- Next.js App Router + TypeScript
+- OpenAI Responses API con streaming
+- Tailwind CSS v4
+- Capa de núcleo aislada en `src/lib`
+- UI holográfica en `src/components`
+- API preparada para function calling, memoria, voz Realtime e integraciones externas
 
-## Run Locally
+## Desarrollo
 
-**Prerequisites:**  Node.js
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
 
+Variables mínimas:
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```env
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-5.6
+```
+
+## Verificación
+
+```bash
+npm run typecheck
+npm run lint
+npm run build
+```
+
+## Producción
+
+El proyecto está diseñado para desplegarse desde Vercel con `jarvis-business-os` como Root Directory.
