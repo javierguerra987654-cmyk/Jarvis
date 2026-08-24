@@ -5,6 +5,15 @@ import { Activity, Cpu, Send, ShieldCheck, Sparkles, Volume2 } from "lucide-reac
 
 type Message = { role: "user" | "assistant"; content: string };
 
+function getUserId() {
+  const key = "jarvis-user-id";
+  const existing = window.localStorage.getItem(key);
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  window.localStorage.setItem(key, created);
+  return created;
+}
+
 export default function JarvisShell() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -25,7 +34,7 @@ export default function JarvisShell() {
       const response = await fetch("/api/jarvis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history: messages.slice(-20) }),
+        body: JSON.stringify({ message: text, history: messages.slice(-20), userId: getUserId() }),
       });
       if (!response.ok || !response.body) {
         const data = await response.json().catch(() => null);
@@ -86,7 +95,7 @@ export default function JarvisShell() {
             <div className="orb mb-10" aria-label="JARVIS core visualizer" />
             <div className="mb-2 text-xs tracking-[0.35em] text-cyan-200/70">{status}</div>
             <h1 className="text-center text-3xl font-medium tracking-tight text-white md:text-5xl">At your service, Señor.</h1>
-            <p className="mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">Core de conversación OpenAI con streaming. Voz, memoria y herramientas están diseñadas como módulos independientes.</p>
+            <p className="mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">Core de conversación OpenAI con streaming. Memoria persistente conectada a Supabase; herramientas externas se activarán solo cuando exista una conexión real.</p>
 
             <div className="panel mt-8 flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl">
               <div className="max-h-72 min-h-28 overflow-y-auto p-4 text-sm">{messages.length === 0 ? <div className="flex h-24 items-center justify-center text-slate-600">Esperando instrucciones.</div> : messages.map((message, index) => <div key={`${message.role}-${index}`} className={`mb-3 max-w-[88%] rounded-2xl px-4 py-3 ${message.role === "user" ? "ml-auto bg-cyan-300/10 text-cyan-50" : "bg-white/[0.035] text-slate-200"}`}>{message.content || "…"}</div>)}</div>
@@ -94,7 +103,7 @@ export default function JarvisShell() {
             </div>
           </section>
 
-          <aside className="panel hidden rounded-2xl p-5 lg:block"><div className="mb-6 text-xs tracking-[0.2em] text-slate-400">TELEMETRY</div><div className="space-y-5 text-xs"><div><div className="text-slate-500">CORE STATE</div><div className="mt-1 text-lg text-emerald-300">{status}</div></div><div><div className="text-slate-500">CONVERSATION EVENTS</div><div className="mt-1 text-lg text-white">{messageCount}</div></div><div><div className="text-slate-500">MODEL</div><div className="mt-1 break-all text-slate-300">gpt-5.6</div></div><div><div className="text-slate-500">TRANSPORT</div><div className="mt-1 text-slate-300">Server streaming</div></div></div></aside>
+          <aside className="panel hidden rounded-2xl p-5 lg:block"><div className="mb-6 text-xs tracking-[0.2em] text-slate-400">TELEMETRY</div><div className="space-y-5 text-xs"><div><div className="text-slate-500">CORE STATE</div><div className="mt-1 text-lg text-emerald-300">{status}</div></div><div><div className="text-slate-500">CONVERSATION EVENTS</div><div className="mt-1 text-lg text-white">{messageCount}</div></div><div><div className="text-slate-500">MODEL</div><div className="mt-1 break-all text-slate-300">gpt-5.6</div></div><div><div className="text-slate-500">TRANSPORT</div><div className="mt-1 text-slate-300">Server streaming</div></div><div><div className="text-slate-500">MEMORY</div><div className="mt-1 text-emerald-300">Supabase / persistent</div></div></div></aside>
         </div>
       </section>
     </main>
