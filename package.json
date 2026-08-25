@@ -1,0 +1,18 @@
+{
+  "name": "jarvis-root",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.x" },
+  "scripts": {
+    "dev": "cd jarvis-business-os && npm run dev",
+    "build": "cd jarvis-business-os && npm install && npm run build",
+    "start": "cd jarvis-business-os && npm run start",
+    "lint": "cd jarvis-business-os && npm run lint",
+    "typecheck": "cd jarvis-business-os && npm run typecheck"
+  },
+  "dependencies": {
+    "next": "^16.3.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}
