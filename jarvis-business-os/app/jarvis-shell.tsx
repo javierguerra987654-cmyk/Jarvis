@@ -1,16 +1,27 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Cpu, Send, ShieldCheck, Sparkles, Volume2 } from "lucide-react";
 
 type Message = { role: "user" | "assistant"; content: string };
+type SpeechRecognitionConstructor = new () => SpeechRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
 
 export default function JarvisShell() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
-  const status = busy ? "THINKING" : sessionReady ? "ONLINE" : "CONNECTING";
+  const [listening, setListening] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const status = busy ? "THINKING" : listening ? "LISTENING" : sessionReady ? "ONLINE" : "CONNECTING";
   const messageCount = useMemo(() => messages.length, [messages.length]);
 
   useEffect(() => {
@@ -22,6 +33,47 @@ export default function JarvisShell() {
       .then(() => setSessionReady(true))
       .catch((error) => setMessages([{ role: "assistant", content: `Sistema: ${error instanceof Error ? error.message : "Error de sesión."}` }]));
   }, []);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.abort();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  function speak(text: string) {
+    if (!voiceEnabled || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "es-ES";
+    utterance.rate = 1.02;
+    utterance.pitch = 0.95;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function toggleVoice() {
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setVoiceEnabled(false);
+      setMessages((current) => [...current, { role: "assistant", content: "Sistema: el navegador no ofrece reconocimiento de voz. El modo texto continúa disponible." }]);
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = "es-ES";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event) => setInput(event.results[0]?.[0]?.transcript ?? "");
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    setListening(true);
+    recognition.start();
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -68,6 +120,7 @@ export default function JarvisShell() {
           }
         }
       }
+      speak(assistant);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Error desconocido.";
       setMessages((current) => [...current, { role: "assistant", content: `Sistema: ${message}` }]);
@@ -98,15 +151,15 @@ export default function JarvisShell() {
             <div className="orb mb-10" aria-label="JARVIS core visualizer" />
             <div className="mb-2 text-xs tracking-[0.35em] text-cyan-200/70">{status}</div>
             <h1 className="text-center text-3xl font-medium tracking-tight text-white md:text-5xl">At your service, Señor.</h1>
-            <p className="mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">Core de conversación OpenAI con streaming. Memoria persistente en Supabase; herramientas externas solo se activan cuando existe una conexión real y autorizada.</p>
+            <p className="mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">Conversación, memoria semántica y herramientas reales con controles de sesión, permisos y auditoría.</p>
 
             <div className="panel mt-8 flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl">
               <div className="max-h-72 min-h-28 overflow-y-auto p-4 text-sm">{messages.length === 0 ? <div className="flex h-24 items-center justify-center text-slate-600">Esperando instrucciones.</div> : messages.map((message, index) => <div key={`${message.role}-${index}`} className={`mb-3 max-w-[88%] rounded-2xl px-4 py-3 ${message.role === "user" ? "ml-auto bg-cyan-300/10 text-cyan-50" : "bg-white/[0.035] text-slate-200"}`}>{message.content || "…"}</div>)}</div>
-              <form onSubmit={submit} className="flex items-center gap-2 border-t border-white/7 p-3"><input value={input} onChange={(event) => setInput(event.target.value)} disabled={busy || !sessionReady} placeholder={sessionReady ? "Escriba una instrucción…" : "Inicializando sesión…"} className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-white outline-none placeholder:text-slate-600" /><button type="button" aria-label="Voice module" className="grid size-11 place-items-center rounded-xl border border-white/8 text-slate-400 hover:border-cyan-300/30 hover:text-cyan-200"><Volume2 size={18} /></button><button type="submit" disabled={busy || !sessionReady || !input.trim()} className="grid size-11 place-items-center rounded-xl bg-cyan-300 text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Send size={17} /></button></form>
+              <form onSubmit={submit} className="flex items-center gap-2 border-t border-white/7 p-3"><input value={input} onChange={(event) => setInput(event.target.value)} disabled={busy || !sessionReady} placeholder={sessionReady ? "Escriba una instrucción…" : "Inicializando sesión…"} className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-white outline-none placeholder:text-slate-600" /><button type="button" onClick={toggleVoice} aria-label={listening ? "Stop voice input" : "Start voice input"} className={`grid size-11 place-items-center rounded-xl border ${listening ? "border-cyan-300/50 text-cyan-200" : "border-white/8 text-slate-400 hover:border-cyan-300/30 hover:text-cyan-200"}`}><Volume2 size={18} /></button><button type="submit" disabled={busy || !sessionReady || !input.trim()} className="grid size-11 place-items-center rounded-xl bg-cyan-300 text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Send size={17} /></button></form>
             </div>
           </section>
 
-          <aside className="panel hidden rounded-2xl p-5 lg:block"><div className="mb-6 text-xs tracking-[0.2em] text-slate-400">TELEMETRY</div><div className="space-y-5 text-xs"><div><div className="text-slate-500">CORE STATE</div><div className="mt-1 text-lg text-emerald-300">{status}</div></div><div><div className="text-slate-500">CONVERSATION EVENTS</div><div className="mt-1 text-lg text-white">{messageCount}</div></div><div><div className="text-slate-500">MODEL</div><div className="mt-1 break-all text-slate-300">gpt-5.6</div></div><div><div className="text-slate-500">TRANSPORT</div><div className="mt-1 text-slate-300">Server streaming</div></div><div><div className="text-slate-500">MEMORY</div><div className="mt-1 text-emerald-300">Supabase / persistent</div></div></div></aside>
+          <aside className="panel hidden rounded-2xl p-5 lg:block"><div className="mb-6 text-xs tracking-[0.2em] text-slate-400">TELEMETRY</div><div className="space-y-5 text-xs"><div><div className="text-slate-500">CORE STATE</div><div className="mt-1 text-lg text-emerald-300">{status}</div></div><div><div className="text-slate-500">CONVERSATION EVENTS</div><div className="mt-1 text-lg text-white">{messageCount}</div></div><div><div className="text-slate-500">MODEL</div><div className="mt-1 break-all text-slate-300">gpt-5.6</div></div><div><div className="text-slate-500">TRANSPORT</div><div className="mt-1 text-slate-300">Server streaming</div></div><div><div className="text-slate-500">MEMORY</div><div className="mt-1 text-emerald-300">Supabase / semantic + fallback</div></div></div></aside>
         </div>
       </section>
     </main>
