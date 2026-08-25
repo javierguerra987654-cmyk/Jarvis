@@ -1,30 +1,32 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Activity, Cpu, Send, ShieldCheck, Sparkles, Volume2 } from "lucide-react";
 
 type Message = { role: "user" | "assistant"; content: string };
-
-function getUserId() {
-  const key = "jarvis-user-id";
-  const existing = window.localStorage.getItem(key);
-  if (existing) return existing;
-  const created = crypto.randomUUID();
-  window.localStorage.setItem(key, created);
-  return created;
-}
 
 export default function JarvisShell() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const status = busy ? "THINKING" : "ONLINE";
+  const [sessionReady, setSessionReady] = useState(false);
+  const status = busy ? "THINKING" : sessionReady ? "ONLINE" : "CONNECTING";
   const messageCount = useMemo(() => messages.length, [messages.length]);
+
+  useEffect(() => {
+    fetch("/api/session", { credentials: "include", cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("No se pudo iniciar la sesión.");
+        return response.json();
+      })
+      .then(() => setSessionReady(true))
+      .catch((error) => setMessages([{ role: "assistant", content: `Sistema: ${error instanceof Error ? error.message : "Error de sesión."}` }]));
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || !sessionReady) return;
 
     setMessages((current) => [...current, { role: "user", content: text }]);
     setInput("");
@@ -33,8 +35,9 @@ export default function JarvisShell() {
     try {
       const response = await fetch("/api/jarvis", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history: messages.slice(-20), userId: getUserId() }),
+        body: JSON.stringify({ message: text, history: messages.slice(-20) }),
       });
       if (!response.ok || !response.body) {
         const data = await response.json().catch(() => null);
@@ -95,11 +98,11 @@ export default function JarvisShell() {
             <div className="orb mb-10" aria-label="JARVIS core visualizer" />
             <div className="mb-2 text-xs tracking-[0.35em] text-cyan-200/70">{status}</div>
             <h1 className="text-center text-3xl font-medium tracking-tight text-white md:text-5xl">At your service, Señor.</h1>
-            <p className="mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">Core de conversación OpenAI con streaming. Memoria persistente conectada a Supabase; herramientas externas se activarán solo cuando exista una conexión real.</p>
+            <p className="mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">Core de conversación OpenAI con streaming. Memoria persistente en Supabase; herramientas externas solo se activan cuando existe una conexión real y autorizada.</p>
 
             <div className="panel mt-8 flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl">
               <div className="max-h-72 min-h-28 overflow-y-auto p-4 text-sm">{messages.length === 0 ? <div className="flex h-24 items-center justify-center text-slate-600">Esperando instrucciones.</div> : messages.map((message, index) => <div key={`${message.role}-${index}`} className={`mb-3 max-w-[88%] rounded-2xl px-4 py-3 ${message.role === "user" ? "ml-auto bg-cyan-300/10 text-cyan-50" : "bg-white/[0.035] text-slate-200"}`}>{message.content || "…"}</div>)}</div>
-              <form onSubmit={submit} className="flex items-center gap-2 border-t border-white/7 p-3"><input value={input} onChange={(event) => setInput(event.target.value)} disabled={busy} placeholder="Escriba una instrucción…" className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-white outline-none placeholder:text-slate-600" /><button type="button" aria-label="Voice module" className="grid size-11 place-items-center rounded-xl border border-white/8 text-slate-400 hover:border-cyan-300/30 hover:text-cyan-200"><Volume2 size={18} /></button><button type="submit" disabled={busy || !input.trim()} className="grid size-11 place-items-center rounded-xl bg-cyan-300 text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Send size={17} /></button></form>
+              <form onSubmit={submit} className="flex items-center gap-2 border-t border-white/7 p-3"><input value={input} onChange={(event) => setInput(event.target.value)} disabled={busy || !sessionReady} placeholder={sessionReady ? "Escriba una instrucción…" : "Inicializando sesión…"} className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-white outline-none placeholder:text-slate-600" /><button type="button" aria-label="Voice module" className="grid size-11 place-items-center rounded-xl border border-white/8 text-slate-400 hover:border-cyan-300/30 hover:text-cyan-200"><Volume2 size={18} /></button><button type="submit" disabled={busy || !sessionReady || !input.trim()} className="grid size-11 place-items-center rounded-xl bg-cyan-300 text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Send size={17} /></button></form>
             </div>
           </section>
 
