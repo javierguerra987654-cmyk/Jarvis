@@ -1,21 +1,41 @@
 # J.A.R.V.I.S. Architecture
 
-## Current state
+## Production baseline
 
 - Next.js App Router + React + TypeScript.
 - OpenAI Responses API with server-side streaming at `POST /api/jarvis`.
-- `OPENAI_API_KEY` is server-only.
-- Tool registry exists but no production tools are registered yet.
-- Memory interface exists, but the current implementation is in-memory and does not persist to Supabase/PostgreSQL.
-- Voice, vision, Realtime audio, GitHub, Shopify, Google, automations and computer control are not connected by this application yet.
+- Signed HttpOnly browser session with server-side identity at `/api/session`.
+- Supabase PostgreSQL adapter for persistent long-term memory.
+- Central tool registry with risk levels and authorization gates.
+- Server-side request IDs and bounded rate limiting.
+- Runtime integration readiness at `GET /api/status`.
+- Production security headers in Next.js.
 
 ## Security rules
 
-1. Never expose `OPENAI_API_KEY` to client code.
-2. Never use `NEXT_PUBLIC_OPENAI_API_KEY`.
-3. Tool integrations must fail closed when credentials or authorization are missing.
-4. Never present simulated data as real external data.
-5. Sensitive tool calls require explicit authorization at execution time.
+1. Never expose `OPENAI_API_KEY` or `SUPABASE_SERVICE_ROLE_KEY` to client code.
+2. Never use `NEXT_PUBLIC_OPENAI_API_KEY` or `NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY`.
+3. Client requests do not choose their own memory `userId`; the server derives it from a signed HttpOnly session cookie.
+4. Tools are fail-closed when credentials or authorization are missing.
+5. High-risk tools require explicit approval or operator authorization.
+6. Never present synthetic fixture data as real external data.
+7. External content is untrusted input and cannot override the JARVIS system policy.
+8. Every significant request should carry a request ID for diagnosis and audit correlation.
+
+## Integration contract
+
+The application detects optional real connectors from environment variables. A disconnected connector is reported as `DISCONNECTED`; it is never represented as connected merely because a UI module exists.
+
+Supported integration targets:
+
+- GitHub
+- Shopify
+- Gmail
+- Calendar
+- Web search
+- Automation / notifications
+
+Connector credentials must be added only in the deployment environment. Never commit them to GitHub.
 
 ## Deployment
 
@@ -25,41 +45,52 @@ The intended Vercel configuration is:
 - Framework: Next.js
 - Install: `npm install`
 - Build: `npm run build`
-- Node.js: 24+
-- Production environment requires a current, unexposed OpenAI API key.
+- Node.js: 24.x
 
-## Roadmap
+Required production variables:
 
-### Phase 1 — Core
+```env
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5.6
+JARVIS_SESSION_SECRET=
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Optional integration variables are documented in `.env.example`.
+
+## Delivery roadmap
+
+### Core — implemented baseline
 - Chat
 - SSE streaming
-- Structured tool calling
-- Error boundaries and request IDs
+- Request validation
+- Signed sessions
+- Rate limiting
+- Request IDs
+- Tool authorization metadata
+- Supabase memory adapter
+- Runtime integration status
+- Production security headers
 
-### Phase 2 — Memory
-- Supabase PostgreSQL adapter
-- Short-term conversation persistence
-- Long-term memory
-- Embeddings/vector search
-
-### Phase 3 — Tools
+### Integrations — connector work
 - Web search
-- GitHub
-- Shopify
-- Calendar
-- Email
-- Automation
-- System tools
+- GitHub read/write actions
+- Shopify read/write actions
+- Google OAuth for Gmail and Calendar
+- Notifications and scheduled jobs
 
-### Phase 4 — Multimodal
+### Multimodal
+- Speech-to-text
+- Text-to-speech
+- Realtime audio
+- VAD and interruption handling
 - Vision
-- OpenAI Realtime
-- VAD
-- interruption/barging
-- speech output
 
-### Phase 5 — Autonomous execution
-- durable jobs
-- approval gates
-- audit trail
-- autonomous agents
+### Autonomous execution
+- Durable jobs
+- Approval gates
+- Audit persistence
+- Retry policies
+- Verification after every external mutation
+- Background automation
