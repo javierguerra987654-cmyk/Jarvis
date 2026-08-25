@@ -4,6 +4,7 @@ import { runMemoryTool } from "@/lib/memory-tool";
 import { integrationToolDefinitions, runIntegrationTool } from "@/lib/integration-tools";
 import { getSessionUserId } from "@/lib/session";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,14 +44,18 @@ const tools = [memoryToolDefinition, ...integrationToolDefinitions];
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  let userId: string | undefined;
   try {
-    const userId = getSessionUserId(request);
+    userId = getSessionUserId(request) ?? undefined;
     if (!userId) {
+      await audit({ requestId, action: "chat", status: "error", detail: "SESSION_REQUIRED" });
       return Response.json({ error: "Sesión JARVIS no válida o ausente.", code: "SESSION_REQUIRED", requestId }, { status: 401 });
     }
 
     const rate = enforceRateLimit(`jarvis:${userId}`, 20, 60_000);
     if (!rate.allowed) {
+      await audit({ requestId, userId, action: "chat", status: "error", detail: "RATE_LIMITED", latencyMs: Date.now() - startedAt });
       return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Inténtalo de nuevo en un momento.", requestId }), {
         status: 429,
         headers: { "Content-Type": "application/json", "Retry-After": String(rate.retryAfter) },
@@ -58,6 +63,7 @@ export async function POST(request: Request) {
     }
 
     const body = RequestSchema.parse(await request.json());
+    await audit({ requestId, userId, action: "chat", status: "started" });
     const client = getOpenAI();
     const conversation = body.history
       .map((item) => `${item.role === "user" ? "USER" : "ASSISTANT"}: ${item.content}`)
@@ -111,10 +117,12 @@ export async function POST(request: Request) {
               controller.enqueue(encoder.encode(sse({ delta: event.delta })));
             }
           }
+          await audit({ requestId, userId, action: "chat", status: "success", latencyMs: Date.now() - startedAt });
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (error) {
           const message = error instanceof Error ? error.message : "Error de streaming.";
+          await audit({ requestId, userId, action: "chat", status: "error", detail: message, latencyMs: Date.now() - startedAt });
           controller.enqueue(encoder.encode(sse({ error: message, requestId })));
           controller.close();
         }
@@ -137,7 +145,7 @@ export async function POST(request: Request) {
       : error instanceof Error
         ? error.message
         : "Error interno.";
-
+    await audit({ requestId, userId, action: "chat", status: "error", detail: message, latencyMs: Date.now() - startedAt });
     return Response.json({ error: message, requestId }, { status: error instanceof z.ZodError ? 400 : 500 });
   }
 }
