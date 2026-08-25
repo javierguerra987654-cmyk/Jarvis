@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { executeTool, registerTool } from "@/lib/tools";
+import type { JarvisTool, JarvisToolContext } from "@/lib/tools";
 import { memoryStore } from "@/lib/memory";
 
 const MemoryInput = z.object({
@@ -10,13 +11,13 @@ const MemoryInput = z.object({
   importance: z.number().min(0).max(1).optional(),
 });
 
-export const memoryTool = {
+export const memoryTool: JarvisTool<typeof MemoryInput> = {
   name: "memory",
   description: "Busca o guarda memoria persistente de J.A.R.V.I.S. Solo usa save cuando el usuario pida recordar, guardar o memorizar algo.",
   input: MemoryInput,
-  risk: "LOW" as const,
-  permission: "AUTO" as const,
-  async execute(input: z.infer<typeof MemoryInput>, context: { userId?: string; requestId: string }) {
+  risk: "LOW",
+  permission: "AUTO",
+  async execute(input: z.infer<typeof MemoryInput>, context: JarvisToolContext) {
     if (!context.userId) throw new Error("Memoria requiere un identificador de usuario.");
 
     if (input.action === "search") {
@@ -45,7 +46,7 @@ export function ensureMemoryToolRegistered() {
   initialized = true;
 }
 
-export async function runMemoryTool(rawInput: unknown, context: { userId?: string; requestId: string }) {
+export async function runMemoryTool(rawInput: unknown, context: JarvisToolContext) {
   ensureMemoryToolRegistered();
   return executeTool("memory", rawInput, context);
 }
