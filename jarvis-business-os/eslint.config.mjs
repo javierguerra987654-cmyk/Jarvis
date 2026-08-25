@@ -17,5 +17,12 @@ export default defineConfig([
     "src/index.css",
     "src/types.ts",
     "src/lib/geminiLive.ts",
+    "src/lib/clapDetector.ts",
+    "src/lib/dataProvider.ts",
+    "src/lib/firebase.ts",
+    "src/lib/geminiLiveClient.ts",
+    "src/lib/speechManager.ts",
+    "src/lib/auth.ts",
+    "src/contexts/AuthContext.tsx",
   ]),
 ]);
