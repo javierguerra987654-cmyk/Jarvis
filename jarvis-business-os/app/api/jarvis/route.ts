@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { getJarvisModel, getJarvisSystemPrompt, getOpenAI } from "@/lib/jarvis-core";
 import { runMemoryTool } from "@/lib/memory-tool";
+import { getSessionUserId } from "@/lib/session";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +13,6 @@ const RequestSchema = z.object({
     role: z.enum(["user", "assistant"]),
     content: z.string().max(12000),
   })).max(30).default([]),
-  userId: z.string().uuid().optional(),
 });
 
 function sse(payload: unknown) {
@@ -38,10 +39,23 @@ const memoryToolDefinition = {
 } as const;
 
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
   try {
+    const userId = getSessionUserId(request);
+    if (!userId) {
+      return Response.json({ error: "Sesión JARVIS no válida o ausente.", code: "SESSION_REQUIRED", requestId }, { status: 401 });
+    }
+
+    const rate = enforceRateLimit(`jarvis:${userId}`, 20, 60_000);
+    if (!rate.allowed) {
+      return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Inténtalo de nuevo en un momento.", requestId }), {
+        status: 429,
+        headers: { "Content-Type": "application/json", "Retry-After": String(rate.retryAfter) },
+      });
+    }
+
     const body = RequestSchema.parse(await request.json());
     const client = getOpenAI();
-    const requestId = crypto.randomUUID();
     const conversation = body.history
       .map((item) => `${item.role === "user" ? "USER" : "ASSISTANT"}: ${item.content}`)
       .concat(`USER: ${body.message}`)
@@ -54,28 +68,18 @@ export async function POST(request: Request) {
       tools: [memoryToolDefinition],
     });
 
-    const calls = (first.output ?? []).filter((item: any) => item.type === "function_call");
-    const outputs = [] as Array<{ type: "function_call_output"; call_id: string; output: string }>;
+    const calls = (first.output ?? []).filter((item: { type?: string }) => item.type === "function_call");
+    const outputs: Array<{ type: "function_call_output"; call_id: string; output: string }> = [];
 
-    for (const call of calls as any[]) {
-      if (call.name !== "memory") continue;
+    for (const call of calls) {
+      const typedCall = call as { name?: string; arguments?: string; call_id?: string };
+      if (typedCall.name !== "memory" || !typedCall.call_id) continue;
       try {
-        const result = await runMemoryTool(JSON.parse(call.arguments), {
-          userId: body.userId,
-          requestId,
-        });
-        outputs.push({
-          type: "function_call_output",
-          call_id: call.call_id,
-          output: JSON.stringify(result),
-        });
+        const result = await runMemoryTool(JSON.parse(typedCall.arguments || "{}"), { userId, requestId });
+        outputs.push({ type: "function_call_output", call_id: typedCall.call_id, output: JSON.stringify(result) });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Error ejecutando memoria.";
-        outputs.push({
-          type: "function_call_output",
-          call_id: call.call_id,
-          output: JSON.stringify({ error: message }),
-        });
+        outputs.push({ type: "function_call_output", call_id: typedCall.call_id, output: JSON.stringify({ error: message }) });
       }
     }
 
@@ -100,7 +104,7 @@ export async function POST(request: Request) {
           controller.close();
         } catch (error) {
           const message = error instanceof Error ? error.message : "Error de streaming.";
-          controller.enqueue(encoder.encode(sse({ error: message })));
+          controller.enqueue(encoder.encode(sse({ error: message, requestId })));
           controller.close();
         }
       },
@@ -112,6 +116,8 @@ export async function POST(request: Request) {
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
         "X-Accel-Buffering": "no",
+        "X-Request-Id": requestId,
+        "X-RateLimit-Remaining": String(rate.remaining),
       },
     });
   } catch (error) {
@@ -121,6 +127,6 @@ export async function POST(request: Request) {
         ? error.message
         : "Error interno.";
 
-    return Response.json({ error: message }, { status: 400 });
+    return Response.json({ error: message, requestId }, { status: error instanceof z.ZodError ? 400 : 500 });
   }
 }
