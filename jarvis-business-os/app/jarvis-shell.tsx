@@ -4,6 +4,25 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Cpu, Send, ShieldCheck, Sparkles, Volume2 } from "lucide-react";
 
 type Message = { role: "user" | "assistant"; content: string };
+
+type SpeechRecognitionResultItem = { transcript: string; confidence: number };
+type SpeechRecognitionResult = { [index: number]: SpeechRecognitionResultItem; length: number };
+type SpeechRecognitionResultList = { [index: number]: SpeechRecognitionResult; length: number };
+type SpeechRecognitionEvent = { results: SpeechRecognitionResultList };
+type SpeechRecognitionErrorEvent = { error: string; message?: string };
+
+type SpeechRecognition = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
 type SpeechRecognitionConstructor = new () => SpeechRecognition;
 
 declare global {
