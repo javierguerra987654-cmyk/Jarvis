@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getJarvisModel, getJarvisSystemPrompt, getOpenAI } from "@/lib/jarvis-core";
 import { runMemoryTool } from "@/lib/memory-tool";
+import { integrationToolDefinitions, runIntegrationTool } from "@/lib/integration-tools";
 import { getSessionUserId } from "@/lib/session";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -20,7 +21,7 @@ function sse(payload: unknown) {
 }
 
 const memoryToolDefinition = {
-  type: "function",
+  type: "function" as const,
   name: "memory",
   description: "Busca o guarda memoria persistente. Usa search para recuperar recuerdos relevantes y save solo cuando el usuario pida recordar, guardar o memorizar algo.",
   strict: true,
@@ -37,6 +38,8 @@ const memoryToolDefinition = {
     required: ["action", "query", "content", "category", "importance"],
   },
 } as const;
+
+const tools = [memoryToolDefinition, ...integrationToolDefinitions];
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
@@ -65,7 +68,7 @@ export async function POST(request: Request) {
       model: getJarvisModel(),
       instructions: getJarvisSystemPrompt(),
       input: conversation,
-      tools: [memoryToolDefinition],
+      tools,
     });
 
     const calls = (first.output ?? []).filter((item: { type?: string }) => item.type === "function_call");
@@ -73,12 +76,20 @@ export async function POST(request: Request) {
 
     for (const call of calls) {
       const typedCall = call as { name?: string; arguments?: string; call_id?: string };
-      if (typedCall.name !== "memory" || !typedCall.call_id) continue;
+      if (!typedCall.name || !typedCall.call_id) continue;
       try {
-        const result = await runMemoryTool(JSON.parse(typedCall.arguments || "{}"), { userId, requestId });
+        const args = JSON.parse(typedCall.arguments || "{}");
+        let result: unknown;
+        if (typedCall.name === "memory") {
+          result = await runMemoryTool(args, { userId, requestId });
+        } else if (integrationToolDefinitions.some((tool) => tool.name === typedCall.name)) {
+          result = await runIntegrationTool(typedCall.name, args);
+        } else {
+          throw new Error(`Tool no permitida: ${typedCall.name}`);
+        }
         outputs.push({ type: "function_call_output", call_id: typedCall.call_id, output: JSON.stringify(result) });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Error ejecutando memoria.";
+        const message = error instanceof Error ? error.message : "Error ejecutando herramienta.";
         outputs.push({ type: "function_call_output", call_id: typedCall.call_id, output: JSON.stringify({ error: message }) });
       }
     }
