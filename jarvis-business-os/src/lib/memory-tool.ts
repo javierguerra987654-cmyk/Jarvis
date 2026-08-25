@@ -14,6 +14,8 @@ export const memoryTool = {
   name: "memory",
   description: "Busca o guarda memoria persistente de J.A.R.V.I.S. Solo usa save cuando el usuario pida recordar, guardar o memorizar algo.",
   input: MemoryInput,
+  risk: "LOW" as const,
+  permission: "AUTO" as const,
   async execute(input: z.infer<typeof MemoryInput>, context: { userId?: string; requestId: string }) {
     if (!context.userId) throw new Error("Memoria requiere un identificador de usuario.");
 
