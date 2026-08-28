@@ -11,6 +11,7 @@ export type MemoryRecord = {
 };
 
 export interface JarvisMemoryStore {
+  list(userId: string, limit?: number): Promise<MemoryRecord[]>;
   search(userId: string, query: string, limit?: number): Promise<MemoryRecord[]>;
   save(record: Omit<MemoryRecord, "id" | "createdAt" | "score">): Promise<MemoryRecord>;
 }
@@ -60,6 +61,33 @@ async function embed(text: string) {
 
 export function createMemoryStore(): JarvisMemoryStore {
   return {
+    async list(userId, limit = 12) {
+      if (!getSupabaseConfig()) return [];
+      const params = new URLSearchParams({
+        select: "id,user_id,content,category,importance,created_at",
+        user_id: `eq.${userId}`,
+        order: "created_at.desc",
+        limit: String(Math.min(Math.max(limit, 1), 50)),
+      });
+      const response = await supabaseRequest(`jarvis_memory?${params.toString()}`);
+      const rows = (await response.json()) as Array<{
+        id: string;
+        user_id: string;
+        content: string;
+        category: MemoryRecord["category"];
+        importance: number;
+        created_at: string;
+      }>;
+      return rows.map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        content: row.content,
+        category: row.category,
+        importance: Number(row.importance),
+        createdAt: row.created_at,
+      }));
+    },
+
     async search(userId, query, limit = 8) {
       if (!getSupabaseConfig()) return [];
       const vector = await embed(query);
