@@ -7,6 +7,7 @@ type Message = { role: "user" | "assistant"; content: string };
 type Memory = { id: string; content: string; category: "fact" | "preference" | "goal" | "context"; importance: number; createdAt: string };
 type Integration = { id: string; configured: boolean; mode: "REAL" | "DISCONNECTED"; capabilities: string[] };
 type SystemStatus = { model: string; memory: boolean; integrations: Integration[]; configuredIntegrations: number };
+type Mission = { id: string; title: string; objective: string; priority: number; success_metric: string | null; risk_level: "low" | "medium" | "high" | "critical"; status: "planned" | "active" | "blocked" | "awaiting_approval" | "completed" | "cancelled"; created_at: string; updated_at: string };
 type SpeechRecognitionResultItem = { transcript: string };
 type SpeechRecognitionResult = { [index: number]: SpeechRecognitionResultItem; length: number };
 type SpeechRecognitionResultList = { [index: number]: SpeechRecognitionResult; length: number };
@@ -17,11 +18,13 @@ type SpeechRecognitionConstructor = new () => SpeechRecognition;
 declare global { interface Window { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor } }
 
 const memoryLabels = { fact: "Dato", preference: "Preferencia", goal: "Objetivo", context: "Contexto" };
+const missionStatusLabels = { planned: "PLANIFICADA", active: "ACTIVA", blocked: "BLOQUEADA", awaiting_approval: "ESPERA APROBACIÓN", completed: "COMPLETADA", cancelled: "CANCELADA" } as const;
 const iconByIntegration: Record<string, typeof Github> = { github: Github, calendar: CalendarClock, gmail: Send, shopify: Database, web: BrainCircuit, automation: Activity };
 
 export default function JarvisShell() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [missions, setMissions] = useState<Mission[]>([]);
   const [system, setSystem] = useState<SystemStatus | null>(null);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,12 +38,14 @@ export default function JarvisShell() {
   const connected = system?.configuredIntegrations ?? 0;
 
   async function refreshCommandCenter() {
-    const [statusResponse, memoryResponse] = await Promise.all([
+    const [statusResponse, memoryResponse, missionResponse] = await Promise.all([
       fetch("/api/status", { cache: "no-store" }),
       fetch("/api/memory", { credentials: "include", cache: "no-store" }),
+      fetch("/api/missions", { credentials: "include", cache: "no-store" }),
     ]);
     if (statusResponse.ok) setSystem(await statusResponse.json());
     if (memoryResponse.ok) setMemories((await memoryResponse.json()).memories ?? []);
+    if (missionResponse.ok) setMissions((await missionResponse.json()).missions ?? []);
   }
 
   useEffect(() => {
@@ -148,7 +153,13 @@ export default function JarvisShell() {
           <form onSubmit={submit} className="flex items-center gap-2 border-t border-white/7 p-3"><input value={input} onChange={(event) => setInput(event.target.value)} disabled={busy || !sessionReady} placeholder={sessionReady ? "Dale una instrucción a JARVIS…" : "Inicializando sesión…"} className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-white outline-none placeholder:text-slate-600" /><button type="button" onClick={toggleVoice} aria-label={listening ? "Detener entrada de voz" : "Iniciar entrada de voz"} className={`grid size-11 place-items-center rounded-xl border ${listening ? "border-cyan-300/50 text-cyan-200" : "border-white/8 text-slate-400 hover:border-cyan-300/30 hover:text-cyan-200"}`}><Mic size={18} /></button><button type="submit" disabled={busy || !sessionReady || !input.trim()} className="grid size-11 place-items-center rounded-xl bg-cyan-300 text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Send size={17} /></button></form>
         </section>
 
-        <aside className="space-y-5"><section className="panel rounded-2xl p-5"><div className="mb-4 flex items-center gap-2 text-xs tracking-[.18em] text-slate-400"><Target size={14} />CONTROL DE MISIÓN</div><div className="space-y-3"><MissionStep number="01" label="Define el resultado" active /><MissionStep number="02" label="Elige la palanca" active={godMode} /><MissionStep number="03" label="Aprueba la acción" /></div><p className="mt-4 border-t border-white/6 pt-3 text-[10px] leading-4 text-slate-500">Las propuestas no ejecutan acciones externas sin tu aprobación.</p></section><section className="panel rounded-2xl p-5"><div className="mb-4 flex items-center justify-between"><div className="text-xs tracking-[.18em] text-slate-400">CONNECTED TOOLS</div><button onClick={() => void refreshCommandCenter()} aria-label="Actualizar estado" className="text-slate-500 hover:text-cyan-200"><ArrowUpRight size={15} /></button></div><div className="space-y-2">{system?.integrations.map((integration) => { const Icon = iconByIntegration[integration.id] ?? Database; return <div key={integration.id} className="flex items-center gap-3 rounded-xl border border-white/6 bg-white/[.02] px-3 py-3"><Icon size={15} className={integration.configured ? "text-emerald-300" : "text-slate-600"} /><div className="min-w-0 flex-1"><div className="text-xs capitalize text-slate-200">{integration.id}</div><div className="mt-0.5 text-[10px] tracking-[.12em] text-slate-500">{integration.mode}</div></div>{integration.configured ? <CheckCircle2 size={14} className="text-emerald-300" /> : <X size={14} className="text-slate-600" />}</div>; }) ?? <p className="text-xs text-slate-500">Comprobando conectores…</p>}</div></section><section className="panel rounded-2xl p-5"><div className="text-xs tracking-[.18em] text-slate-400">LIVE TELEMETRY</div><div className="mt-4 grid grid-cols-2 gap-3"><Metric label="EVENTS" value={String(messageCount)} /><Metric label="MODEL" value={system?.model ?? "…"} /><Metric label="VOICE" value={voiceEnabled ? "READY" : "TEXT"} /><Metric label="ACTIONS" value="APPROVAL" /></div></section></aside>
+        <aside className="space-y-5">
+          <section className="panel rounded-2xl p-5"><div className="mb-4 flex items-center justify-between"><div className="flex items-center gap-2 text-xs tracking-[.18em] text-slate-400"><Target size={14} />CONTROL DE MISIÓN</div><span className="text-[10px] tracking-[.12em] text-cyan-200/60">{missions.length} TOTAL</span></div><div className="space-y-3"><MissionStep number="01" label="Define el resultado" active /><MissionStep number="02" label="Elige la palanca" active={godMode} /><MissionStep number="03" label="Aprueba la acción" /></div><p className="mt-4 border-t border-white/6 pt-3 text-[10px] leading-4 text-slate-500">Las propuestas no ejecutan acciones externas sin tu aprobación.</p></section>
+
+          <section className="panel rounded-2xl p-5"><div className="mb-4 flex items-center justify-between"><div className="flex items-center gap-2 text-xs tracking-[.18em] text-slate-400"><Target size={14} />MISSION STATE</div><button onClick={() => void refreshCommandCenter()} aria-label="Actualizar misiones" className="text-slate-500 hover:text-cyan-200"><ArrowUpRight size={15} /></button></div>{missions.length ? <div className="space-y-3">{missions.slice(0, 4).map((mission) => <article key={mission.id} className="rounded-xl border border-white/6 bg-white/[.02] p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-xs text-slate-200">{mission.title}</span><span className="shrink-0 text-[9px] tracking-[.12em] text-cyan-200/65">{missionStatusLabels[mission.status]}</span></div><div className="mt-2 h-1 overflow-hidden rounded-full bg-white/6"><div className="h-full rounded-full bg-cyan-300/70" style={{ width: `${Math.min(100, Math.max(0, mission.priority))}%` }} /></div><div className="mt-2 flex items-center justify-between text-[9px] tracking-[.1em] text-slate-500"><span>PRIORIDAD {mission.priority}</span><span>RIESGO {mission.risk_level.toUpperCase()}</span></div></article>)}</div> : <p className="text-xs leading-5 text-slate-500">No hay misiones persistentes todavía. Puedes pedir a JARVIS: “crea una misión para…”</p>}</section>
+
+          <section className="panel rounded-2xl p-5"><div className="mb-4 flex items-center justify-between"><div className="text-xs tracking-[.18em] text-slate-400">CONNECTED TOOLS</div><button onClick={() => void refreshCommandCenter()} aria-label="Actualizar estado" className="text-slate-500 hover:text-cyan-200"><ArrowUpRight size={15} /></button></div><div className="space-y-2">{system?.integrations.map((integration) => { const Icon = iconByIntegration[integration.id] ?? Database; return <div key={integration.id} className="flex items-center gap-3 rounded-xl border border-white/6 bg-white/[.02] px-3 py-3"><Icon size={15} className={integration.configured ? "text-emerald-300" : "text-slate-600"} /><div className="min-w-0 flex-1"><div className="text-xs capitalize text-slate-200">{integration.id}</div><div className="mt-0.5 text-[10px] tracking-[.12em] text-slate-500">{integration.mode}</div></div>{integration.configured ? <CheckCircle2 size={14} className="text-emerald-300" /> : <X size={14} className="text-slate-600" />}</div>; }) ?? <p className="text-xs text-slate-500">Comprobando conectores…</p>}</div></section><section className="panel rounded-2xl p-5"><div className="text-xs tracking-[.18em] text-slate-400">LIVE TELEMETRY</div><div className="mt-4 grid grid-cols-2 gap-3"><Metric label="EVENTS" value={String(messageCount)} /><Metric label="MISSIONS" value={String(missions.length)} /><Metric label="VOICE" value={voiceEnabled ? "READY" : "TEXT"} /><Metric label="ACTIONS" value="APPROVAL" /></div></section>
+        </aside>
       </div>
     </section>
   </main>;
