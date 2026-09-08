@@ -3,6 +3,7 @@ import { getJarvisModel, getJarvisSystemPrompt, getOpenAI } from "@/lib/jarvis-c
 import { runMemoryTool } from "@/lib/memory-tool";
 import { integrationToolDefinitions, runIntegrationTool } from "@/lib/integration-tools";
 import { missionToolDefinitions, runMissionTool } from "@/lib/mission-tools";
+import { goalToolDefinitions, runGoalTool } from "@/lib/goal-tools";
 import { getSessionUserId } from "@/lib/session";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { audit } from "@/lib/audit";
@@ -41,7 +42,7 @@ const memoryToolDefinition = {
   },
 } as const;
 
-const tools = [memoryToolDefinition, ...integrationToolDefinitions, ...missionToolDefinitions];
+const tools = [memoryToolDefinition, ...integrationToolDefinitions, ...missionToolDefinitions, ...goalToolDefinitions];
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
@@ -92,6 +93,9 @@ export async function POST(request: Request) {
         } else if (missionToolDefinitions.some((tool) => tool.name === typedCall.name)) {
           result = await runMissionTool(typedCall.name, args, { userId });
           await audit({ requestId, userId, action: `mission.${typedCall.name.replace("mission_", "")}`, status: "success" });
+        } else if (goalToolDefinitions.some((tool) => tool.name === typedCall.name)) {
+          result = await runGoalTool(typedCall.name, args, { userId });
+          await audit({ requestId, userId, action: `goal.${typedCall.name.replace("goal_", "")}`, status: "success" });
         } else if (integrationToolDefinitions.some((tool) => tool.name === typedCall.name)) {
           result = await runIntegrationTool(typedCall.name, args);
         } else {
