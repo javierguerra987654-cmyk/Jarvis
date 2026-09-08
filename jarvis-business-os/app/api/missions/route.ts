@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSessionUserId } from "@/lib/session";
 import { audit } from "@/lib/audit";
-import { createMission, listMissions } from "@/lib/mission-store";
+import { createMission, listMissions } from "@/lib/mission-store-rest";
 import { MissionPlanSchema } from "@/lib/missions";
 
 export const runtime = "nodejs";
