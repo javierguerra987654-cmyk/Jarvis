@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSessionUserId } from "@/lib/session";
 import { audit } from "@/lib/audit";
-import { getMission } from "@/lib/mission-store";
+import { getMission } from "@/lib/mission-store-rest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
