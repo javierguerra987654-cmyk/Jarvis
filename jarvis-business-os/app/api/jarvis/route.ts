@@ -2,6 +2,7 @@ import { z } from "zod";
 import { getJarvisModel, getJarvisSystemPrompt, getOpenAI } from "@/lib/jarvis-core";
 import { runMemoryTool } from "@/lib/memory-tool";
 import { integrationToolDefinitions, runIntegrationTool } from "@/lib/integration-tools";
+import { missionToolDefinitions, runMissionTool } from "@/lib/mission-tools";
 import { getSessionUserId } from "@/lib/session";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { audit } from "@/lib/audit";
@@ -40,7 +41,7 @@ const memoryToolDefinition = {
   },
 } as const;
 
-const tools = [memoryToolDefinition, ...integrationToolDefinitions];
+const tools = [memoryToolDefinition, ...integrationToolDefinitions, ...missionToolDefinitions];
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
@@ -88,6 +89,9 @@ export async function POST(request: Request) {
         let result: unknown;
         if (typedCall.name === "memory") {
           result = await runMemoryTool(args, { userId, requestId });
+        } else if (missionToolDefinitions.some((tool) => tool.name === typedCall.name)) {
+          result = await runMissionTool(typedCall.name, args, { userId });
+          await audit({ requestId, userId, action: `mission.${typedCall.name.replace("mission_", "")}`, status: "success" });
         } else if (integrationToolDefinitions.some((tool) => tool.name === typedCall.name)) {
           result = await runIntegrationTool(typedCall.name, args);
         } else {
