@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 
 const WAKE_WORDS = ["jarvis", "j.a.r.v.i.s", "j a r v i s"];
 const SILENCE_MS = 900;
-const VAD_INTERVAL_MS = 50;
 const START_THRESHOLD = 0.025;
 const END_THRESHOLD = 0.012;
 
@@ -14,7 +13,7 @@ type SpeechRecognitionLike = {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }> }) => void) | null;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
   onerror: ((event: { error?: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
@@ -42,8 +41,9 @@ function normalize(text: string) {
 function extractCommand(text: string) {
   const normalized = normalize(text);
   for (const wakeWord of WAKE_WORDS) {
-    const index = normalized.indexOf(normalize(wakeWord));
-    if (index >= 0) return normalized.slice(index + normalize(wakeWord).length).trim();
+    const marker = normalize(wakeWord);
+    const index = normalized.indexOf(marker);
+    if (index >= 0) return normalized.slice(index + marker.length).trim();
   }
   return null;
 }
@@ -51,6 +51,7 @@ function extractCommand(text: string) {
 export default function VoiceController() {
   const [state, setState] = useState<VoiceState>("OFF");
   const [level, setLevel] = useState(0);
+  const stateRef = useRef<VoiceState>("OFF");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -62,10 +63,15 @@ export default function VoiceController() {
   const modeRef = useRef<"wake" | "command">("wake");
   const stoppingRef = useRef(false);
 
+  function updateState(next: VoiceState) {
+    stateRef.current = next;
+    setState(next);
+  }
+
   useEffect(() => {
     const Recognition = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : undefined;
     if (!Recognition || !navigator.mediaDevices?.getUserMedia) {
-      setState("UNAVAILABLE");
+      updateState("UNAVAILABLE");
       return;
     }
 
@@ -78,7 +84,7 @@ export default function VoiceController() {
       recognitionRef.current = null;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
-      audioContextRef.current?.close().catch(() => undefined);
+      await audioContextRef.current?.close().catch(() => undefined);
       audioContextRef.current = null;
       analyserRef.current = null;
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -86,8 +92,10 @@ export default function VoiceController() {
       silenceSinceRef.current = null;
       heardSpeechRef.current = false;
       commandRef.current = "";
+      modeRef.current = "wake";
       setLevel(0);
-      setState("OFF");
+      updateState("OFF");
+      if (micButton) micButton.setAttribute("aria-label", "Iniciar entrada de voz");
     }
 
     async function submitCommand(command: string) {
@@ -100,7 +108,7 @@ export default function VoiceController() {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
       setter?.call(input, text);
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      setState("PROCESSING");
+      updateState("PROCESSING");
       window.setTimeout(() => form.requestSubmit(), 30);
     }
 
@@ -127,11 +135,12 @@ export default function VoiceController() {
         const rms = Math.sqrt(sum / samples.length);
         setLevel(Math.min(1, rms * 3.8));
         const now = performance.now();
+
         if (rms >= START_THRESHOLD) {
           heardSpeechRef.current = true;
           silenceSinceRef.current = null;
-          if (modeRef.current === "command") setState("LISTENING");
-        } else if (modeRef.current === "command" && heardSpeechRef.current) {
+          if (modeRef.current === "command" && stateRef.current !== "PROCESSING") updateState("LISTENING");
+        } else if (modeRef.current === "command" && heardSpeechRef.current && stateRef.current !== "PROCESSING") {
           if (rms <= END_THRESHOLD) {
             if (silenceSinceRef.current == null) silenceSinceRef.current = now;
             if (now - silenceSinceRef.current >= SILENCE_MS) {
@@ -140,7 +149,7 @@ export default function VoiceController() {
               heardSpeechRef.current = false;
               silenceSinceRef.current = null;
               modeRef.current = "wake";
-              setState("WAKE");
+              updateState("WAKE");
               if (command) void submitCommand(command);
             }
           }
@@ -157,8 +166,7 @@ export default function VoiceController() {
       recognition.continuous = true;
       recognition.onresult = (event) => {
         for (let i = 0; i < event.results.length; i += 1) {
-          const result = event.results[i];
-          const transcript = result?.[0]?.transcript ?? "";
+          const transcript = event.results[i]?.[0]?.transcript ?? "";
           if (!transcript) continue;
 
           if (modeRef.current === "wake") {
@@ -168,32 +176,27 @@ export default function VoiceController() {
               commandRef.current = command;
               heardSpeechRef.current = false;
               silenceSinceRef.current = null;
-              setState("LISTENING");
-              if (command) {
-                heardSpeechRef.current = true;
-              }
+              updateState("LISTENING");
+              if (command) heardSpeechRef.current = true;
             }
           } else {
             const normalized = normalize(transcript);
-            if (normalized.includes("jarvis")) {
-              const afterWake = extractCommand(transcript);
-              if (afterWake) commandRef.current += ` ${afterWake}`;
-            } else {
-              commandRef.current += ` ${normalized}`;
-            }
-            setState("LISTENING");
+            if (normalized === "jarvis") continue;
+            const afterWake = extractCommand(transcript);
+            commandRef.current += ` ${afterWake !== null ? afterWake : normalized}`;
+            updateState("LISTENING");
           }
         }
       };
       recognition.onerror = () => {
-        if (!stoppingRef.current) setState("WAKE");
+        if (!stoppingRef.current && stateRef.current !== "PROCESSING") updateState("WAKE");
       };
       recognition.onend = () => {
-        if (!stoppingRef.current) {
+        if (!stoppingRef.current && stateRef.current !== "PROCESSING") {
           try {
             recognition.start();
           } catch {
-            // Browser may reject immediate restart; the next user gesture can retry.
+            // Browser may reject an immediate restart; the next event can recover.
           }
         }
       };
@@ -201,13 +204,13 @@ export default function VoiceController() {
       try {
         recognition.start();
       } catch {
-        setState("WAKE");
+        updateState("WAKE");
       }
     }
 
     async function start() {
+      if (stateRef.current !== "OFF") return;
       stoppingRef.current = false;
-      if (state !== "OFF" && state !== "UNAVAILABLE") return;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -222,17 +225,18 @@ export default function VoiceController() {
         setupAnalyser(stream);
         modeRef.current = "wake";
         commandRef.current = "";
-        setState("WAKE");
+        updateState("WAKE");
+        if (micButton) micButton.setAttribute("aria-label", "Detener entrada de voz");
         startRecognition();
       } catch {
-        setState("OFF");
+        updateState("OFF");
       }
     }
 
     const onMicClick = (event: Event) => {
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (state === "OFF") void start(); else void stop();
+      if (stateRef.current === "OFF") void start(); else void stop();
     };
 
     micButton?.addEventListener("click", onMicClick, true);
@@ -242,7 +246,7 @@ export default function VoiceController() {
       micButton?.removeEventListener("click", onMicClick, true);
       void stop();
     };
-  }, [state]);
+  }, []);
 
   const label = state === "WAKE" ? "ESPERANDO · JARVIS" : state === "LISTENING" ? "ESCUCHANDO" : state === "PROCESSING" ? "PROCESANDO" : state === "UNAVAILABLE" ? "VOZ NO DISPONIBLE" : "VOZ OFF";
 
