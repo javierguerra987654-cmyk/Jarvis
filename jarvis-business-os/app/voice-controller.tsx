@@ -70,6 +70,7 @@ export default function VoiceController() {
       return;
     }
 
+    const Recognition = RecognitionCtor;
     const micButton = document.querySelector('button[aria-label="Iniciar entrada de voz"]') as HTMLButtonElement | null;
 
     async function stop() {
@@ -155,7 +156,7 @@ export default function VoiceController() {
     }
 
     function startRecognition() {
-      const recognition = new RecognitionCtor();
+      const recognition = new Recognition();
       recognition.lang = "es-ES";
       recognition.interimResults = true;
       recognition.continuous = true;
