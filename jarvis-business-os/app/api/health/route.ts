@@ -24,38 +24,32 @@ async function checkMemory() {
 }
 
 export async function GET() {
-  const [memory, integrations] = await Promise.all([checkMemory(), Promise.resolve(getIntegrationStatus())]);
+  const [memory, integrations] = await Promise.all([
+    checkMemory(),
+    Promise.resolve(getIntegrationStatus()),
+  ]);
   const openai = Boolean(process.env.OPENAI_API_KEY);
-  const session = Boolean(process.env.JARVIS_SESSION_SECRET && process.env.JARVIS_SESSION_SECRET.length >= 32);
-  const coreReady = openai && session;
-export async function GET() {
-  const integrations = getIntegrationStatus();
-  const coreReady = Boolean(
-    process.env.OPENAI_API_KEY &&
-    process.env.JARVIS_SESSION_SECRET &&
-    process.env.JARVIS_SESSION_SECRET.length >= 32,
+  const session = Boolean(
+    process.env.JARVIS_SESSION_SECRET && process.env.JARVIS_SESSION_SECRET.length >= 32,
   );
-  const memoryConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const coreReady = openai && session;
 
   return NextResponse.json(
     {
-      ok: coreReady,
+      ok: coreReady && memory.reachable,
       service: "J.A.R.V.I.S.",
       version: "v2",
       checks: {
         openai,
         session,
         memory: memory.reachable,
-      version: "foundation-v1",
-      checks: {
-        openai: Boolean(process.env.OPENAI_API_KEY),
-        session: Boolean(process.env.JARVIS_SESSION_SECRET && process.env.JARVIS_SESSION_SECRET.length >= 32),
-        memory: memoryConfigured,
       },
       integrations: integrations.map(({ id, configured, mode }) => ({ id, configured, mode })),
       checkedAt: new Date().toISOString(),
     },
-    { status: coreReady && memory.reachable ? 200 : 503, headers: { "Cache-Control": "no-store" } },
-    { status: coreReady ? 200 : 503, headers: { "Cache-Control": "no-store" } },
+    {
+      status: coreReady && memory.reachable ? 200 : 503,
+      headers: { "Cache-Control": "no-store" },
+    },
   );
 }
