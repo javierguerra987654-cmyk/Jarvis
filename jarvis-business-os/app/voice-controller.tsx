@@ -22,13 +22,7 @@ type SpeechRecognitionLike = {
 };
 
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
-
-declare global {
-  interface Window {
-    SpeechRecognition?: SpeechRecognitionCtor;
-    webkitSpeechRecognition?: SpeechRecognitionCtor;
-  }
-}
+type VoiceWindow = { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
 
 function normalize(text: string) {
   return text
@@ -69,8 +63,9 @@ export default function VoiceController() {
   }
 
   useEffect(() => {
-    const Recognition = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : undefined;
-    if (!Recognition || !navigator.mediaDevices?.getUserMedia) {
+    const browserWindow = window as unknown as VoiceWindow;
+    const RecognitionCtor = browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition;
+    if (!RecognitionCtor || !navigator.mediaDevices?.getUserMedia) {
       updateState("UNAVAILABLE");
       return;
     }
@@ -160,7 +155,7 @@ export default function VoiceController() {
     }
 
     function startRecognition() {
-      const recognition = new Recognition();
+      const recognition = new RecognitionCtor();
       recognition.lang = "es-ES";
       recognition.interimResults = true;
       recognition.continuous = true;
